@@ -49,11 +49,6 @@ export interface HostHeartbeat {
   lastSeenAt: string;
  }
 
-export interface CodexSession {
-  id: string;
-  sourceSessionPath?: string;
-}
-
 export type CodexStreamEventKind = "assistant" | "thinking";
 
 export interface CodexStreamEvent {
@@ -63,6 +58,7 @@ export interface CodexStreamEvent {
 
 export interface CodexSendMessageOptions {
   onEvent?: (event: CodexStreamEvent) => Promise<void> | void;
+  sourceSessionPath?: string | null;
 }
 
 export interface DiscordGateway {
@@ -91,7 +87,6 @@ export interface DiscordGateway {
 }
 
 export interface CodexGateway {
-  createSession(reason: string, options?: { cwd?: string }): Promise<CodexSession>;
   archiveSession(sessionId: string): Promise<void>;
   sendMessage(sessionId: string, content: string, options?: CodexSendMessageOptions): Promise<string>;
 }

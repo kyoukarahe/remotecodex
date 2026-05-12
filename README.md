@@ -4,9 +4,10 @@ RemoteCodex maps Discord text channels to local Windows Codex sessions.
 
 V1 scope is intentionally chat-only:
 
-- Discord channel creation no longer creates a local Codex session automatically. Session creation and import are command-channel operations.
+- Discord channel creation does not create a local Codex session. Session creation belongs to Windows Codex only.
 - A local Codex session can create a matching Discord channel through `SessionBridge.handleCodexSessionCreated`.
 - Running bot instances poll Codex session metadata and create Discord channels for new local Codex sessions observed after startup.
+- The command channel can import or bind existing Codex sessions, but it cannot create Codex sessions.
 - One Discord channel maps to one Codex session.
 - Deleting a Discord channel archives the mapped Codex session locally.
 - Calling `SessionBridge.handleCodexSessionArchived` deletes the mapped Discord channel. The default watcher does not infer archive from missing session-index entries because Codex indexing can lag or be unavailable.
@@ -68,7 +69,6 @@ Supported command-channel commands:
 !help
 !status
 !import <hostId> <latest|sessionId>
-!new <hostId> <cwd>
 !bind <hostId> <channelId> <sessionId>
 ```
 
@@ -76,8 +76,9 @@ Supported command-channel commands:
 
 The Codex adapter auto-detects the installed Codex CLI, preferring `codex.cmd`, then `codex.exe`, then `codex`:
 
-- New sessions: `codex exec --json ...`
 - Chat turns: `codex exec resume --json <sessionId> <message>`
+
+RemoteCodex does not create Codex sessions or append to Codex's session index. Create sessions in Windows Codex, then let the watcher discover them or import them explicitly from the command channel.
 
 Codex CLI does not currently expose a stable archive command in `codex --help`, so archiving is recorded in RemoteCodex state and prevents additional routing.
 

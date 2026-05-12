@@ -29,9 +29,6 @@ export class RemoteCodexCommandHandler {
       case "import":
         await this.importSession(channelId, args);
         return;
-      case "new":
-        await this.newSession(channelId, args);
-        return;
       case "bind":
         await this.bind(channelId, args);
         return;
@@ -75,23 +72,6 @@ export class RemoteCodexCommandHandler {
     await this.reply(channelId, `Imported ${session.id} as ${sanitizeChannelName(session.threadName)}.`);
   }
 
-  private async newSession(channelId: string, args: string[]): Promise<void> {
-    const [targetHostId, ...rest] = args;
-    if (!targetHostId || rest.length === 0) {
-      await this.reply(channelId, "Usage: !new <hostId> <cwd>");
-      return;
-    }
-    if (targetHostId !== this.hostId) {
-      await this.replyIfOffline(channelId, targetHostId);
-      return;
-    }
-
-    const cwd = rest.join(" ");
-    const label = cwd.split(/[\\/]/).filter(Boolean).at(-1) ?? "codex-session";
-    const mapping = await this.bridge.createLocalSessionFromCommand({ label, cwd });
-    await this.reply(channelId, `Created ${mapping.codexSessionId} in channel ${mapping.discordChannelId}.`);
-  }
-
   private async bind(channelId: string, args: string[]): Promise<void> {
     const [targetHostId, targetChannelId, sessionId] = args;
     if (!targetHostId || !targetChannelId || !sessionId) {
@@ -129,7 +109,6 @@ function commandHelp(): string {
     "RemoteCodex commands:",
     "!status",
     "!import <hostId> <latest|sessionId>",
-    "!new <hostId> <cwd>",
     "!bind <hostId> <channelId> <sessionId>",
   ].join("\n");
 }

@@ -9,10 +9,6 @@ import { JsonFileSessionStore } from "./store.js";
 import type { CodexGateway } from "./types.js";
 
 class NoopCodexGateway implements CodexGateway {
-  async createSession(): Promise<{ id: string }> {
-    throw new Error("Migration CLI does not create live Codex sessions");
-  }
-
   async archiveSession(): Promise<void> {
     throw new Error("Migration CLI does not archive live Codex sessions");
   }

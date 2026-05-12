@@ -29,49 +29,11 @@ function testRig() {
     listHostHeartbeats: vi.fn(async () => []),
   };
   const codex: CodexGateway = {
-    createSession: vi.fn(async () => ({ id: "codex-1" })),
     archiveSession: vi.fn(async () => undefined),
     sendMessage: vi.fn(async () => "codex response"),
   };
   const store = new InMemorySessionStore();
   const bridge = new SessionBridge(discord, codex, store, {
-    channelCreateGraceMs: 0,
-    hostId: "pc1",
-    hostLabel: "pc1",
-    defaultOwnerHostId: "pc1",
-    now: () => new Date("2026-05-07T00:00:00.000Z"),
-  });
-  return { bridge, discord, codex, store };
-}
-
-function delayedBridgeRig() {
-  const bindings = new Map<string, unknown>();
-  const discord: DiscordGateway = {
-    createSessionChannel: vi.fn(async (name: string) => ({ id: `channel-${name}`, name })),
-    deleteChannel: vi.fn(async () => undefined),
-    sendMessage: vi.fn(async () => undefined),
-    sendTyping: vi.fn(async () => undefined),
-    fetchChannelDescriptor: vi.fn(async (channelId: string) => ({
-      id: channelId,
-      name: "remote-codex",
-      parentId: null,
-      topic: null,
-    })),
-    readChannelBinding: vi.fn(async (channelId: string) => (bindings.get(channelId) as never) ?? null),
-    writeChannelBinding: vi.fn(async (channelId, binding) => {
-      bindings.set(channelId, binding);
-    }),
-    publishHostHeartbeat: vi.fn(async () => undefined),
-    listHostHeartbeats: vi.fn(async () => []),
-  };
-  const codex: CodexGateway = {
-    createSession: vi.fn(async () => ({ id: "codex-1" })),
-    archiveSession: vi.fn(async () => undefined),
-    sendMessage: vi.fn(async () => "codex response"),
-  };
-  const store = new InMemorySessionStore();
-  const bridge = new SessionBridge(discord, codex, store, {
-    channelCreateGraceMs: 25,
     hostId: "pc1",
     hostLabel: "pc1",
     defaultOwnerHostId: "pc1",
@@ -81,23 +43,6 @@ function delayedBridgeRig() {
 }
 
 describe("SessionBridge", () => {
-  it("marks a Discord-created channel as pending instead of creating a Codex session automatically", async () => {
-    const { bridge, codex, store } = testRig();
-
-    const mapping = await bridge.handleDiscordChannelCreated("discord-1", "remote-codex");
-
-    expect(codex.createSession).not.toHaveBeenCalled();
-    expect(mapping).toMatchObject({
-      mappingKind: "live_session",
-      discordChannelId: "discord-1",
-      codexSessionId: "pending-discord-1",
-      transcriptId: null,
-      ownerHostId: "pc1",
-      origin: "discord",
-    });
-    expect(await store.list()).toHaveLength(0);
-  });
-
   it("creates a Discord channel when a Codex session is created", async () => {
     const { bridge, discord, store } = testRig();
 
@@ -113,32 +58,6 @@ describe("SessionBridge", () => {
       mappingState: "active",
       origin: "codex",
     });
-    expect(await store.list()).toHaveLength(1);
-  });
-
-  it("does not create a reverse Codex session for a channel that was just mapped from Codex", async () => {
-    const { bridge, codex, store } = delayedBridgeRig();
-
-    const createdFromCodex = bridge.handleCodexSessionCreated("codex-42", "My Codex Session");
-    await bridge.handleDiscordChannelCreated("channel-my-codex-session", "my-codex-session");
-    await createdFromCodex;
-
-    expect(codex.createSession).not.toHaveBeenCalled();
-    expect(await store.list()).toHaveLength(1);
-    expect((await store.list())[0]).toMatchObject({
-      discordChannelId: "channel-my-codex-session",
-      codexSessionId: "codex-42",
-      origin: "codex",
-    });
-  });
-
-  it("keeps one active Discord channel mapped to one Codex session", async () => {
-    const { bridge, codex, store } = testRig();
-
-    await bridge.handleCodexSessionCreated("codex-1", "remote-codex");
-    await bridge.handleDiscordChannelCreated("discord-1", "remote-codex");
-
-    expect(codex.createSession).not.toHaveBeenCalled();
     expect(await store.list()).toHaveLength(1);
   });
 
@@ -254,7 +173,9 @@ describe("SessionBridge", () => {
 
     await bridge.handleDiscordMessage("channel-codex-transcript", false, "continue here");
 
-    expect(codex.sendMessage).toHaveBeenCalledWith("codex-42", "continue here", undefined);
+    expect(codex.sendMessage).toHaveBeenCalledWith("codex-42", "continue here", {
+      sourceSessionPath: "C:/codex/codex-42.jsonl",
+    });
     expect(discord.sendMessage).not.toHaveBeenCalled();
   });
 
@@ -267,26 +188,6 @@ describe("SessionBridge", () => {
 
     expect(codex.sendMessage).not.toHaveBeenCalled();
     expect(discord.sendTyping).not.toHaveBeenCalled();
-  });
-
-  it("does not create a local session for a channel owned by another host", async () => {
-    const { bridge, codex, store } = testRig();
-
-    const mapping = await bridge.handleDiscordChannelCreated("discord-remote", "pc2--remote-codex");
-
-    expect(codex.createSession).not.toHaveBeenCalled();
-    expect(mapping.ownerHostId).toBe("pc2");
-    expect(await store.list()).toHaveLength(0);
-  });
-
-  it("uses the parent category name as the Discord-created channel owner", async () => {
-    const { bridge, codex, store } = testRig();
-
-    const mapping = await bridge.handleDiscordChannelCreated("discord-category", "remote-codex", "PC2");
-
-    expect(codex.createSession).not.toHaveBeenCalled();
-    expect(mapping.ownerHostId).toBe("pc2");
-    expect(await store.list()).toHaveLength(0);
   });
 
   it("replies with an offline notice when the owner host is offline", async () => {
@@ -389,7 +290,7 @@ describe("wireDiscordEvents", () => {
 
     wireDiscordEvents(client, bridge, { guildId: "guild-1" });
 
-    expect(client.listenerCount("channelCreate")).toBe(1);
+    expect(client.listenerCount("channelCreate")).toBe(0);
     expect(client.listenerCount("channelDelete")).toBe(1);
     expect(client.listenerCount("messageCreate")).toBe(1);
   });

@@ -10,7 +10,6 @@ import type {
 
 export interface SessionBridgeOptions {
   streamingEnabled?: boolean;
-  channelCreateGraceMs?: number;
   typingIndicatorIntervalMs?: number;
   hostId?: string;
   hostLabel?: string;
@@ -22,7 +21,6 @@ export interface SessionBridgeOptions {
 
 export class SessionBridge {
   private readonly streamingEnabled: boolean;
-  private readonly channelCreateGraceMs: number;
   private readonly typingIndicatorIntervalMs: number;
   private readonly hostId: string;
   private readonly hostLabel: string;
@@ -38,7 +36,6 @@ export class SessionBridge {
     options: SessionBridgeOptions = {},
   ) {
     this.streamingEnabled = options.streamingEnabled ?? false;
-    this.channelCreateGraceMs = options.channelCreateGraceMs ?? 1500;
     this.typingIndicatorIntervalMs = options.typingIndicatorIntervalMs ?? 8000;
     this.hostId = options.hostId ?? process.env.REMOTE_CODEX_HOST_ID ?? hostnameFallback();
     this.hostLabel = options.hostLabel ?? this.hostId;
@@ -50,45 +47,6 @@ export class SessionBridge {
       "This session belongs to host {hostId}, which is currently offline.";
     this.ownerHeartbeatTtlMs = options.ownerHeartbeatTtlMs ?? Number(process.env.REMOTE_CODEX_HEARTBEAT_TTL_MS ?? 30000);
     this.now = options.now ?? (() => new Date());
-  }
-
-  async handleDiscordChannelCreated(
-    channelId: string,
-    channelName: string,
-    parentCategoryName?: string | null,
-  ): Promise<RemoteCodexMapping> {
-    let existing = await this.findActiveByChannel(channelId);
-    if (!existing && this.channelCreateGraceMs > 0) {
-      await sleep(this.channelCreateGraceMs);
-      existing = await this.findActiveByChannel(channelId);
-    }
-    if (existing) {
-      return existing;
-    }
-
-    const ownerHostId = this.resolveOwnerHostId(channelName, parentCategoryName);
-    await this.discord.writeChannelBinding?.(channelId, {
-      ownerHostId,
-      mappingKind: "live_session",
-      state: "pending",
-      updatedAt: this.now().toISOString(),
-    });
-    return {
-      mappingKind: "live_session",
-      discordChannelId: channelId,
-      codexSessionId: `pending-${channelId}`,
-      transcriptId: null,
-      sourceSessionPath: null,
-      mappingState: "active",
-      origin: "discord",
-      chatEnabled: true,
-      streamingEnabled: this.streamingEnabled,
-      lifecycleSyncEnabled: true,
-      createdAt: this.now().toISOString(),
-      archivedAt: null,
-      terminationMode: null,
-      ownerHostId,
-    };
   }
 
   async handleCodexSessionCreated(
@@ -143,11 +101,6 @@ export class SessionBridge {
     });
     await this.writeBinding(mapping, "active");
     return mapping;
-  }
-
-  async createLocalSessionFromCommand(input: { label: string; cwd?: string }): Promise<RemoteCodexMapping> {
-    const session = await this.codex.createSession(`Discord command created: ${input.label}`, { cwd: input.cwd });
-    return this.handleCodexSessionCreated(session.id, input.label, session.sourceSessionPath ?? null);
   }
 
   async bindExistingSession(input: {
@@ -230,9 +183,10 @@ export class SessionBridge {
 
     const stopTyping = this.startTypingIndicator(channelId);
     const streamedContents = new Set<string>();
-    const streamOptions =
+    const sendOptions =
       mapping.mappingKind === "live_session"
         ? {
+            sourceSessionPath: mapping.sourceSessionPath,
             onEvent: async (event: CodexStreamEvent) => {
               const rendered = renderCodexStreamEvent(event);
               if (!rendered || streamedContents.has(normalizeStreamContent(rendered))) {
@@ -242,10 +196,10 @@ export class SessionBridge {
               await this.discord.sendMessage(channelId, rendered);
             },
           }
-        : undefined;
+        : { sourceSessionPath: mapping.sourceSessionPath };
     let response: string;
     try {
-      response = await this.codex.sendMessage(mapping.codexSessionId, content, streamOptions);
+      response = await this.codex.sendMessage(mapping.codexSessionId, content, sendOptions);
     } finally {
       stopTyping();
     }
@@ -442,10 +396,6 @@ export function sanitizeChannelName(name: string): string {
     .replace(/[^a-z0-9-]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 80) || "codex-session";
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function hostnameFallback(): string {

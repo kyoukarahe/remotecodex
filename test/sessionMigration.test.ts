@@ -46,7 +46,6 @@ function migrationRig() {
     }),
   };
   const codex: CodexGateway = {
-    createSession: vi.fn(async () => ({ id: "unused" })),
     archiveSession: vi.fn(async () => undefined),
     sendMessage: vi.fn(async () => "unused"),
   };

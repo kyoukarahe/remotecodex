@@ -340,10 +340,6 @@ export function wireDiscordEvents(
   },
 ): void {
   const commandChannelName = sanitizeChannelName(options.commandChannelName ?? "remote-codex-hosts");
-  client.on(Events.ChannelCreate, async (channel) => {
-    void channel;
-    return;
-  });
 
   client.on(Events.ChannelDelete, async (channel) => {
     if ("guildId" in channel && channel.guildId !== options.guildId) {
