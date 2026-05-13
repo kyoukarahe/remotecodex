@@ -5,3 +5,4 @@ dist/
 output/
 .playwright-cli/
 .playwright-mcp/
+_local-secrets/
