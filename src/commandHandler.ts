@@ -2,11 +2,17 @@ import { resolveIndexedCodexSession } from "./codexSessionIndex.js";
 import type { DiscordGateway } from "./types.js";
 import { SessionBridge, sanitizeChannelName } from "./bridge.js";
 
+export interface RemoteCodexCommandServices {
+  version?: () => Promise<string>;
+  update?: (input: { channelId: string }) => Promise<void>;
+}
+
 export class RemoteCodexCommandHandler {
   constructor(
     private readonly bridge: SessionBridge,
     private readonly discord: DiscordGateway,
     private readonly hostId: string,
+    private readonly services: RemoteCodexCommandServices = {},
   ) {}
 
   async handle(channelId: string, content: string, authorIsBot: boolean): Promise<void> {
@@ -25,6 +31,12 @@ export class RemoteCodexCommandHandler {
         return;
       case "status":
         await this.status(channelId);
+        return;
+      case "version":
+        await this.version(channelId, args);
+        return;
+      case "update":
+        await this.update(channelId, args);
         return;
       case "import":
         await this.importSession(channelId, args);
@@ -50,6 +62,37 @@ export class RemoteCodexCommandHandler {
         .map((heartbeat) => `${heartbeat.hostId}: ${formatKst(heartbeat.lastSeenAt)}`)
         .join("\n"),
     );
+  }
+
+  private async version(channelId: string, args: string[]): Promise<void> {
+    const [targetHostId] = args;
+    if (targetHostId && targetHostId !== this.hostId) {
+      await this.replyIfOffline(channelId, targetHostId);
+      return;
+    }
+    if (!this.services.version) {
+      await this.reply(channelId, "Version reporting is not configured.");
+      return;
+    }
+    await this.reply(channelId, await this.services.version());
+  }
+
+  private async update(channelId: string, args: string[]): Promise<void> {
+    const [targetHostId] = args;
+    if (!targetHostId) {
+      await this.reply(channelId, "Usage: !update <hostId|all>");
+      return;
+    }
+    if (targetHostId !== "all" && targetHostId !== this.hostId) {
+      await this.replyIfOffline(channelId, targetHostId);
+      return;
+    }
+    if (!this.services.update) {
+      await this.reply(channelId, "Update is not configured.");
+      return;
+    }
+    await this.reply(channelId, `Update starting on ${this.hostId}.`);
+    await this.services.update({ channelId });
   }
 
   private async importSession(channelId: string, args: string[]): Promise<void> {
@@ -108,6 +151,8 @@ function commandHelp(): string {
   return [
     "RemoteCodex commands:",
     "!status",
+    "!version [hostId]",
+    "!update <hostId|all>",
     "!import <hostId> <latest|sessionId>",
     "!bind <hostId> <channelId> <sessionId>",
   ].join("\n");

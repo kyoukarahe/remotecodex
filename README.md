@@ -68,9 +68,33 @@ Supported command-channel commands:
 ```text
 !help
 !status
+!version [hostId]
+!update <hostId|all>
 !import <hostId> <latest|sessionId>
 !bind <hostId> <channelId> <sessionId>
 ```
+
+## Updates
+
+RemoteCodex can update a target host from the command channel:
+
+```text
+!version [hostId]
+!update <hostId|all>
+```
+
+For update support, configure each host with:
+
+```env
+REMOTE_CODEX_REPO_URL=git@github.com:kyoukarahe/remotecodex.git
+REMOTE_CODEX_UPDATE_BRANCH=master
+REMOTE_CODEX_DEPLOY_KEY_PATH=_local-secrets/remotecodex_deploy_key
+REMOTE_CODEX_UPDATE_ENABLED=true
+```
+
+When a zip-installed host has no `.git` directory, the updater initializes Git in place, configures `origin`, fetches the configured branch, then keeps `.git` for later updates. Local runtime files such as `.env`, `_local-secrets`, and `.remotecodex` are ignored and preserved.
+
+The update command starts `scripts/update-remotecodex.ps1` as a detached PowerShell process, then exits the bot. The updater fetches the repo, resets to the fetched branch, runs `npm ci` and `npm run build`, restarts the bot, and writes a status file so the restarted bot can post the result back to Discord.
 
 ## Codex Notes
 
