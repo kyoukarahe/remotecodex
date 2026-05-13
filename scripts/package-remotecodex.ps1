@@ -3,7 +3,8 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $packageRoot = Join-Path $repoRoot "output\package-stage\remotecodex"
 $packageDir = Join-Path $repoRoot "output\packages"
-$zipPath = Join-Path $packageDir "remotecodex-0.1.0.zip"
+$packageJson = Get-Content (Join-Path $repoRoot "package.json") -Raw | ConvertFrom-Json
+$zipPath = Join-Path $packageDir "remotecodex-$($packageJson.version).zip"
 
 Set-Location $repoRoot
 npm.cmd run build

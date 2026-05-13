@@ -132,12 +132,12 @@ Create a zip package for another Windows PC:
 powershell -ExecutionPolicy Bypass -File .\scripts\package-remotecodex.ps1
 ```
 
-The package is written to `output\packages\remotecodex-0.1.0.zip`. It excludes local runtime state such as `.env`, `.remotecodex`, `node_modules`, and logs.
+The package is written to `output\packages\remotecodex-<version>.zip`. It excludes local runtime state such as `.env`, `.remotecodex`, `node_modules`, and logs.
 
 On the second PC:
 
 ```powershell
-Expand-Archive .\remotecodex-0.1.0.zip C:\repos\remotegpt
+Expand-Archive .\remotecodex-<version>.zip C:\repos\remotegpt
 cd C:\repos\remotegpt
 .\install-remotecodex.bat -HostId pc2 -DefaultOwnerHostId pc2 -RegisterStartup
 notepad .env
