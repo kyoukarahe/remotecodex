@@ -14,7 +14,10 @@ function Write-Status {
   param(
     [Parameter(Mandatory = $true)][string]$State,
     [string]$ErrorMessage = "",
-    [string]$Commit = ""
+    [string]$Commit = "",
+    [string]$PreviousVersion = "",
+    [string]$CurrentVersion = "",
+    [string]$StartedAt = ""
   )
 
   $dir = Split-Path -Parent $StatusPath
@@ -28,7 +31,10 @@ function Write-Status {
     channelId = $CommandChannelId
     branch = $Branch
     commit = $Commit
+    previousVersion = $PreviousVersion
+    currentVersion = $CurrentVersion
     error = $ErrorMessage
+    startedAt = $StartedAt
     completedAt = (Get-Date).ToUniversalTime().ToString("o")
   } | ConvertTo-Json -Depth 5 | Set-Content -Path $StatusPath -Encoding UTF8
 }
@@ -41,15 +47,26 @@ function Resolve-Commit {
   }
 }
 
+function Resolve-PackageVersion {
+  try {
+    $package = Get-Content "package.json" -Raw | ConvertFrom-Json
+    return [string]$package.version
+  } catch {
+    return "unknown"
+  }
+}
+
 try {
   $resolvedRoot = (Resolve-Path $Root).Path
   Set-Location $resolvedRoot
+  $updateStartedAt = (Get-Date).ToUniversalTime().ToString("o")
+  $previousVersion = Resolve-PackageVersion
 
   if (!(Test-Path "output\logs")) {
     New-Item -ItemType Directory -Force -Path "output\logs" | Out-Null
   }
 
-  Write-Status -State "running" -Commit (Resolve-Commit)
+  Write-Status -State "running" -Commit (Resolve-Commit) -PreviousVersion $previousVersion -CurrentVersion $previousVersion -StartedAt $updateStartedAt
 
   if (Test-Path $DeployKeyPath) {
     $env:GIT_SSH_COMMAND = "ssh -i `"$DeployKeyPath`" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
@@ -78,9 +95,10 @@ try {
   npm.cmd run build
 
   $commit = Resolve-Commit
-  Write-Status -State "succeeded" -Commit $commit
+  $currentVersion = Resolve-PackageVersion
+  Write-Status -State "succeeded" -Commit $commit -PreviousVersion $previousVersion -CurrentVersion $currentVersion -StartedAt $updateStartedAt
 } catch {
-  Write-Status -State "failed" -ErrorMessage $_.Exception.Message -Commit (Resolve-Commit)
+  Write-Status -State "failed" -ErrorMessage $_.Exception.Message -Commit (Resolve-Commit) -PreviousVersion $previousVersion -CurrentVersion (Resolve-PackageVersion) -StartedAt $updateStartedAt
 } finally {
   Start-Process -FilePath "cmd.exe" `
     -ArgumentList "/d", "/s", "/c", "`"$Root\scripts\start-remotecodex.bat`"" `

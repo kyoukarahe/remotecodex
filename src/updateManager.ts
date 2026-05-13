@@ -124,12 +124,15 @@ export class UpdateManager {
     const hostId = typeof record.hostId === "string" ? record.hostId : this.options.hostId;
     const channelId = typeof record.channelId === "string" ? record.channelId : "";
     const completedAt = typeof record.completedAt === "string" ? record.completedAt : new Date().toISOString();
+    const startedAt = typeof record.startedAt === "string" ? record.startedAt : "";
     const commit = typeof record.commit === "string" ? record.commit : "unknown";
+    const previousVersion = typeof record.previousVersion === "string" && record.previousVersion ? record.previousVersion : "unknown";
+    const currentVersion = typeof record.currentVersion === "string" && record.currentVersion ? record.currentVersion : "unknown";
     const error = typeof record.error === "string" ? record.error : "";
     const message =
       record.state === "succeeded"
-        ? `Update completed on ${hostId}. commit=${commit} completedAt=${formatKst(completedAt)}`
-        : `Update failed on ${hostId}. error=${error || "unknown"} completedAt=${formatKst(completedAt)}`;
+        ? `Update Complete ${hostId}: Version ${previousVersion} -> ${currentVersion}, commit=${commit}, completedAt=${formatKst(completedAt)}${startedAt ? `, duration=${durationText(startedAt, completedAt)}` : ""}`
+        : `Update Failed ${hostId}: Version ${previousVersion} -> ${currentVersion}, error=${error || "unknown"}, completedAt=${formatKst(completedAt)}${startedAt ? `, duration=${durationText(startedAt, completedAt)}` : ""}`;
     return channelId ? JSON.stringify({ channelId, message }) : null;
   }
 }
@@ -178,4 +181,14 @@ function formatKst(timestamp: string): string {
     String(kst.getUTCMinutes()).padStart(2, "0"),
     String(kst.getUTCSeconds()).padStart(2, "0"),
   ].join(":") + " KST";
+}
+
+function durationText(startedAt: string, completedAt: string): string {
+  const started = Date.parse(startedAt);
+  const completed = Date.parse(completedAt);
+  if (Number.isNaN(started) || Number.isNaN(completed) || completed < started) {
+    return "unknown";
+  }
+  const seconds = Math.round((completed - started) / 1000);
+  return `${seconds}s`;
 }
