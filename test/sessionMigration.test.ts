@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
   CANONICAL_REVISION_RESOLUTION_RULE,
@@ -1256,6 +1256,74 @@ describe("TranscriptTailer", () => {
     await tailer.tick();
 
     expect(sent).toEqual([{ username: "bot", content: "late final answer" }]);
+  });
+
+  it("delays fresh live final answers so the bridge can send the primary response first", async () => {
+    const sent: Array<{ username: string; content: string }> = [];
+    const discord: DiscordGateway = {
+      createSessionChannel: vi.fn(async (name: string) => ({ id: `channel-${name}`, name })),
+      deleteChannel: vi.fn(async () => undefined),
+      sendMessage: vi.fn(async (_channelId, content) => {
+        sent.push({ username: "bot", content });
+      }),
+      fetchChannelMessages: vi.fn(async () => []),
+      sendWebhookMessage: vi.fn(async (_channelId, message) => {
+        sent.push({ username: message.username, content: message.content });
+      }),
+    };
+    const sourceSessionPath = `output/test/session-tail-live-final-delay-${Date.now()}.jsonl`;
+    await mkdir("output/test", { recursive: true });
+    await writeFile(
+      sourceSessionPath,
+      [
+        JSON.stringify({
+          timestamp: "2026-05-12T11:53:54.338Z",
+          type: "event_msg",
+          payload: {
+            type: "agent_message",
+            phase: "final_answer",
+            message: "fresh final answer",
+          },
+        }),
+      ].join("\n"),
+    );
+    const store = new InMemorySessionStore([
+      {
+        mappingKind: "live_session",
+        discordChannelId: "discord-1",
+        codexSessionId: "session-1",
+        transcriptId: null,
+        sourceSessionPath,
+        mappingState: "active",
+        origin: "codex",
+        chatEnabled: true,
+        streamingEnabled: false,
+        lifecycleSyncEnabled: true,
+        createdAt: "2026-05-07T00:00:00.000Z",
+        archivedAt: null,
+        terminationMode: null,
+      },
+    ]);
+    const statePath = `output/test/transcript-tail-live-final-delay-${Date.now()}.json`;
+    const tailer = new TranscriptTailer(store, discord, {
+      statePath,
+      liveFinalAnswerDelayMs: 10000,
+      now: () => new Date("2026-05-12T11:53:55.000Z"),
+    });
+
+    await tailer.tick();
+
+    expect(sent).toEqual([]);
+    await expect(readFile(statePath, "utf8").then((content) => JSON.parse(content))).resolves.toMatchObject({
+      channels: {
+        "discord-1": {
+          sentKeys: [],
+        },
+      },
+    });
+    await expect(readFile(statePath, "utf8").then((content) => JSON.parse(content).channels["discord-1"])).resolves.not.toHaveProperty(
+      "lastSourceRecordIndex",
+    );
   });
 
   it("uploads image attachments discovered from assistant body, payload fields, and configured output dirs", async () => {

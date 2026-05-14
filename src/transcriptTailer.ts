@@ -13,6 +13,8 @@ interface TailState {
 export interface TranscriptTailerOptions {
   statePath?: string;
   intervalMs?: number;
+  liveFinalAnswerDelayMs?: number;
+  now?: () => Date;
   speakerLabels?: {
     user?: string;
     assistant?: string;
@@ -128,6 +130,7 @@ export class TranscriptTailer {
 
     const history = await readCodexSessionJsonl(mapping.sourceSessionPath);
     const rawRecords = await readRawRecordsAfter(mapping.sourceSessionPath, channelState.lastSourceRecordIndex);
+    const processableRawRecords = this.processableRawRecords(mapping, rawRecords);
     let changed = false;
     const allTurns = selectTurnsForMigration(history).filter(isTranscriptChatTurn);
     const chatTurns =
@@ -135,7 +138,7 @@ export class TranscriptTailer {
         ? allTurns
         : allTurns.filter((turn) => turn.sourceRecordIndex > channelState.lastSourceRecordIndex!);
     const turns = mapping.mappingKind === "live_session" ? [] : chatTurns;
-    const streamTurns = rawRecords
+    const streamTurns = processableRawRecords
       .map(({ record, sourceRecordIndex }) =>
         streamTurnFromRawRecord(record, sourceRecordIndex, mapping.mappingKind === "live_session"),
       )
@@ -154,12 +157,13 @@ export class TranscriptTailer {
       codexSessionId: mapping.codexSessionId,
       totalChatTurnCount: allTurns.length,
       pendingChatTurnCount: turns.length,
+      pendingStreamTurnCount: streamTurns.length,
       historySourceRecordMax: allTurns.at(-1)?.sourceRecordIndex,
     });
     if (this.discord.sendFiles) {
       const attachments = await discoverImageAttachments({
         textFragments: turns.filter((turn) => turn.speakerRole === "assistant").map((turn) => turn.textualContent),
-        rawRecords: rawRecords.map((item) => item.record),
+        rawRecords: processableRawRecords.map((item) => item.record),
         sourceSessionPath: mapping.sourceSessionPath,
         sourceSessionId: mapping.codexSessionId,
         mappingCreatedAt: mapping.createdAt,
@@ -237,8 +241,8 @@ export class TranscriptTailer {
 
     const nextLastSourceRecordIndex = Math.max(
       maxSourceRecordIndex,
-      allTurns.at(-1)?.sourceRecordIndex ?? -1,
-      rawRecords.at(-1)?.sourceRecordIndex ?? -1,
+      mapping.mappingKind === "live_session" ? -1 : (allTurns.at(-1)?.sourceRecordIndex ?? -1),
+      processableRawRecords.at(-1)?.sourceRecordIndex ?? -1,
     );
     const compactedSentKeys = compactSentKeys(sentKeys);
     if (
@@ -295,6 +299,37 @@ export class TranscriptTailer {
 
   private statePath(): string {
     return this.options.statePath ?? process.env.REMOTE_CODEX_TRANSCRIPT_TAIL_STATE_PATH ?? ".remotecodex/transcript-tail.json";
+  }
+
+  private processableRawRecords(
+    mapping: RemoteCodexMapping,
+    rawRecords: Array<{ sourceRecordIndex: number; record: unknown }>,
+  ): Array<{ sourceRecordIndex: number; record: unknown }> {
+    if (mapping.mappingKind !== "live_session") {
+      return rawRecords;
+    }
+    const firstFreshFinalAnswerIndex = rawRecords.findIndex(({ record }) => this.isFreshLiveFinalAnswer(record));
+    if (firstFreshFinalAnswerIndex < 0) {
+      return rawRecords;
+    }
+    return rawRecords.slice(0, firstFreshFinalAnswerIndex);
+  }
+
+  private isFreshLiveFinalAnswer(record: unknown): boolean {
+    const delayMs = this.options.liveFinalAnswerDelayMs ?? Number(process.env.REMOTE_CODEX_LIVE_FINAL_TAIL_DELAY_MS ?? 10000);
+    if (delayMs <= 0 || !isAgentMessagePhase(record, "final_answer")) {
+      return false;
+    }
+    const timestamp = topLevelTimestamp(record);
+    if (!timestamp) {
+      return false;
+    }
+    const createdAt = Date.parse(timestamp);
+    if (Number.isNaN(createdAt)) {
+      return false;
+    }
+    const now = (this.options.now ?? (() => new Date()))().getTime();
+    return now - createdAt < delayMs;
   }
 
   private async archiveMissingDiscordChannel(mapping: RemoteCodexMapping): Promise<void> {
@@ -419,6 +454,20 @@ function streamTurnFromRawRecord(
     omittedAttachmentContent: false,
     preserveTextFormatting: true,
   };
+}
+
+function isAgentMessagePhase(record: unknown, phase: string): boolean {
+  const current = objectValue(record);
+  if (current?.type !== "event_msg") {
+    return false;
+  }
+  const payload = objectValue(current.payload);
+  return payload?.type === "agent_message" && payload.phase === phase;
+}
+
+function topLevelTimestamp(record: unknown): string | undefined {
+  const current = objectValue(record);
+  return typeof current?.timestamp === "string" ? current.timestamp : undefined;
 }
 
 function isUnknownDiscordChannelError(error: unknown): boolean {
