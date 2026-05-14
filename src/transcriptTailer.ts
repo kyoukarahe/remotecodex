@@ -393,17 +393,18 @@ function streamTurnFromRawRecord(record: unknown, sourceRecordIndex: number): Tr
     return null;
   }
   const payload = objectValue(current.payload);
-  if (payload?.type !== "agent_message" || payload.phase === "final_answer") {
+  if (payload?.type !== "agent_message") {
     return null;
   }
   const message = typeof payload.message === "string" ? payload.message.trim() : "";
   if (!message) {
     return null;
   }
+  const phase = typeof payload.phase === "string" ? payload.phase : "";
   return {
     logicalTurnKind: "source_turn",
     speakerRole: "assistant",
-    textualContent: `${message}\n\u200B`,
+    textualContent: phase === "final_answer" ? message : `${message}\n\u200B`,
     sourceSequenceIndex: sourceRecordIndex,
     sourceRecordIndex,
     omittedAttachmentContent: false,

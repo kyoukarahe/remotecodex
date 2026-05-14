@@ -206,7 +206,11 @@ export class SessionBridge {
     if (mapping.mappingKind === "transcript") {
       return;
     }
-    if (response.trim().length > 0 && !streamedContents.has(normalizeStreamContent(response))) {
+    if (
+      response.trim().length > 0 &&
+      !streamedContents.has(normalizeStreamContent(response)) &&
+      !(await this.channelHasMessage(channelId, response))
+    ) {
       await this.discord.sendMessage(channelId, response);
     }
   }
@@ -361,6 +365,16 @@ export class SessionBridge {
 
   private renderOfflineResponse(hostId: string): string {
     return this.offlineResponseTemplate.replaceAll("{hostId}", hostId);
+  }
+
+  private async channelHasMessage(channelId: string, content: string): Promise<boolean> {
+    if (!this.discord.fetchChannelMessages) {
+      return false;
+    }
+    const normalized = normalizeStreamContent(content);
+    return (await this.discord.fetchChannelMessages(channelId)).some(
+      (message) => normalizeStreamContent(message.content) === normalized,
+    );
   }
 
   private async writeBinding(mapping: RemoteCodexMapping, state: "active" | "archived"): Promise<void> {
