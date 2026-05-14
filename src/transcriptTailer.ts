@@ -130,10 +130,11 @@ export class TranscriptTailer {
     const rawRecords = await readRawRecordsAfter(mapping.sourceSessionPath, channelState.lastSourceRecordIndex);
     let changed = false;
     const allTurns = selectTurnsForMigration(history).filter(isTranscriptChatTurn);
-    const turns =
+    const chatTurns =
       channelState.lastSourceRecordIndex === undefined
         ? allTurns
         : allTurns.filter((turn) => turn.sourceRecordIndex > channelState.lastSourceRecordIndex!);
+    const turns = mapping.mappingKind === "live_session" ? [] : chatTurns;
     const streamTurns = rawRecords
       .map(({ record, sourceRecordIndex }) => streamTurnFromRawRecord(record, sourceRecordIndex))
       .filter((turn): turn is TranscriptRenderableTurn => Boolean(turn));
