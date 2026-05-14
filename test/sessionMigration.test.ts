@@ -1203,6 +1203,61 @@ describe("TranscriptTailer", () => {
     ]);
   });
 
+  it("tails final answers for live sessions when the bridge misses the response", async () => {
+    const sent: Array<{ username: string; content: string }> = [];
+    const discord: DiscordGateway = {
+      createSessionChannel: vi.fn(async (name: string) => ({ id: `channel-${name}`, name })),
+      deleteChannel: vi.fn(async () => undefined),
+      sendMessage: vi.fn(async (_channelId, content) => {
+        sent.push({ username: "bot", content });
+      }),
+      fetchChannelMessages: vi.fn(async () => []),
+      sendWebhookMessage: vi.fn(async (_channelId, message) => {
+        sent.push({ username: message.username, content: message.content });
+      }),
+    };
+    const sourceSessionPath = `output/test/session-tail-live-final-${Date.now()}.jsonl`;
+    await mkdir("output/test", { recursive: true });
+    await writeFile(
+      sourceSessionPath,
+      [
+        JSON.stringify({
+          timestamp: "2026-05-12T11:53:54.338Z",
+          type: "event_msg",
+          payload: {
+            type: "agent_message",
+            phase: "final_answer",
+            message: "late final answer",
+          },
+        }),
+      ].join("\n"),
+    );
+    const store = new InMemorySessionStore([
+      {
+        mappingKind: "live_session",
+        discordChannelId: "discord-1",
+        codexSessionId: "session-1",
+        transcriptId: null,
+        sourceSessionPath,
+        mappingState: "active",
+        origin: "codex",
+        chatEnabled: true,
+        streamingEnabled: false,
+        lifecycleSyncEnabled: true,
+        createdAt: "2026-05-07T00:00:00.000Z",
+        archivedAt: null,
+        terminationMode: null,
+      },
+    ]);
+    const tailer = new TranscriptTailer(store, discord, {
+      statePath: `output/test/transcript-tail-live-final-${Date.now()}.json`,
+    });
+
+    await tailer.tick();
+
+    expect(sent).toEqual([{ username: "bot", content: "late final answer" }]);
+  });
+
   it("uploads image attachments discovered from assistant body, payload fields, and configured output dirs", async () => {
     const sentFiles: Array<{ files: string[]; content?: string }> = [];
     const discord: DiscordGateway = {

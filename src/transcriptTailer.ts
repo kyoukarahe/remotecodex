@@ -136,7 +136,9 @@ export class TranscriptTailer {
         : allTurns.filter((turn) => turn.sourceRecordIndex > channelState.lastSourceRecordIndex!);
     const turns = mapping.mappingKind === "live_session" ? [] : chatTurns;
     const streamTurns = rawRecords
-      .map(({ record, sourceRecordIndex }) => streamTurnFromRawRecord(record, sourceRecordIndex))
+      .map(({ record, sourceRecordIndex }) =>
+        streamTurnFromRawRecord(record, sourceRecordIndex, mapping.mappingKind === "live_session"),
+      )
       .filter((turn): turn is TranscriptRenderableTurn => Boolean(turn));
     const pendingTurns = [...turns, ...streamTurns].sort(
       (left, right) => left.sourceRecordIndex - right.sourceRecordIndex || left.sourceSequenceIndex - right.sourceSequenceIndex,
@@ -387,7 +389,11 @@ async function readRawRecordsAfter(
   return records;
 }
 
-function streamTurnFromRawRecord(record: unknown, sourceRecordIndex: number): TranscriptRenderableTurn | null {
+function streamTurnFromRawRecord(
+  record: unknown,
+  sourceRecordIndex: number,
+  includeFinalAnswer: boolean,
+): TranscriptRenderableTurn | null {
   const current = objectValue(record);
   if (current?.type !== "event_msg") {
     return null;
@@ -401,6 +407,9 @@ function streamTurnFromRawRecord(record: unknown, sourceRecordIndex: number): Tr
     return null;
   }
   const phase = typeof payload.phase === "string" ? payload.phase : "";
+  if (phase === "final_answer" && !includeFinalAnswer) {
+    return null;
+  }
   return {
     logicalTurnKind: "source_turn",
     speakerRole: "assistant",
