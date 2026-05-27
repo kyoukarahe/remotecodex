@@ -1079,7 +1079,7 @@ describe("TranscriptTailer", () => {
     expect(sent).toEqual([{ username: "User", content: "overlap" }]);
   });
 
-  it("does not tail regular chat turns for Codex-origin live session mappings", async () => {
+  it("tails Codex app user turns but not regular assistant turns for live session mappings", async () => {
     const sent: Array<{ username: string; content: string; avatarUrl?: string }> = [];
     const discord: DiscordGateway = {
       createSessionChannel: vi.fn(async (name: string) => ({ id: `channel-${name}`, name })),
@@ -1129,7 +1129,7 @@ describe("TranscriptTailer", () => {
 
     await tailer.tick();
 
-    expect(sent).toEqual([]);
+    expect(sent).toEqual([{ username: "User", content: "live user", avatarUrl: "https://cdn.example/server-avatar.png" }]);
   });
 
   it("tails Codex Desktop commentary agent messages as streamed assistant updates", async () => {

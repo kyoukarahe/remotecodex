@@ -137,7 +137,7 @@ export class TranscriptTailer {
       channelState.lastSourceRecordIndex === undefined
         ? allTurns
         : allTurns.filter((turn) => turn.sourceRecordIndex > channelState.lastSourceRecordIndex!);
-    const turns = mapping.mappingKind === "live_session" ? [] : chatTurns;
+    const turns = mapping.mappingKind === "live_session" ? chatTurns.filter((turn) => turn.speakerRole === "user") : chatTurns;
     const streamTurns = processableRawRecords
       .map(({ record, sourceRecordIndex }) =>
         streamTurnFromRawRecord(record, sourceRecordIndex, mapping.mappingKind === "live_session"),
