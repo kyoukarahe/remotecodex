@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, normalize, resolve } from "node:path";
 
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif"]);
-const PATHISH_KEYS = /(?:path|file|image|asset|output|artifact|attachment|uri|url)/i;
+const PATHISH_KEYS = /(?:^|[_-])(?:path|file|image|asset|artifact|attachment|uri|url|dir)(?:$|[_-])/i;
 const MAX_PAYLOAD_SCAN_DEPTH = 12;
 const MAX_PAYLOAD_SCAN_NODES = 2000;
 const MAX_PAYLOAD_STRING_LENGTH = 20000;
@@ -74,7 +74,7 @@ function visitPayload(
     if (value.length > MAX_PAYLOAD_STRING_LENGTH) {
       return;
     }
-    if (PATHISH_KEYS.test(key ?? "") || looksLikeImagePath(value)) {
+    if (PATHISH_KEYS.test(key ?? "")) {
       for (const candidate of extractImagePathCandidatesFromText(value)) {
         candidates.push({ ...candidate, source: "payload" });
       }

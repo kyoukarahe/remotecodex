@@ -28,6 +28,7 @@ import { InMemorySessionStore } from "../src/store.js";
 import type { CodexGateway, DiscordGateway } from "../src/types.js";
 import { CodexSessionSourceReferenceError, resolveCodexSessionSource } from "../src/codexSessionSource.js";
 import { TranscriptTailer } from "../src/transcriptTailer.js";
+import { discoverImageAttachments } from "../src/imageAttachments.js";
 import {
   detectExpectedRolldownBindings,
   verifyVitestBindingsInstalled,
@@ -1366,16 +1367,16 @@ describe("TranscriptTailer", () => {
     );
     const store = new InMemorySessionStore([
       {
-        mappingKind: "live_session",
+        mappingKind: "transcript",
         discordChannelId: "discord-1",
         codexSessionId: "session-1",
-        transcriptId: null,
+        transcriptId: "transcript-1",
         sourceSessionPath,
         mappingState: "active",
         origin: "codex",
         chatEnabled: true,
         streamingEnabled: false,
-        lifecycleSyncEnabled: true,
+        lifecycleSyncEnabled: false,
         createdAt: "2026-05-07T00:00:00.000Z",
         archivedAt: null,
         terminationMode: null,
@@ -1393,6 +1394,93 @@ describe("TranscriptTailer", () => {
       [bodyImagePath, outputImagePath, payloadImagePath].sort(),
     );
     expect(sentFiles.every((item) => item.content === undefined)).toBe(true);
+  });
+
+  it("does not treat generic command output strings as image attachment payloads", async () => {
+    const testDir = resolve(`output/test/session-tail-image-output-scope-${Date.now()}`);
+    const imagePath = resolve(testDir, "listed.png");
+    const sourceSessionPath = resolve(testDir, "session.jsonl");
+    await mkdir(testDir, { recursive: true });
+    await writeFile(imagePath, "listed-image");
+    await writeFile(sourceSessionPath, "");
+
+    const attachments = await discoverImageAttachments({
+      textFragments: [],
+      rawRecords: [
+        {
+          type: "response_item",
+          payload: {
+            type: "function_call_output",
+            output: `generated report at ${imagePath}`,
+          },
+        },
+      ],
+      sourceSessionPath,
+      mappingCreatedAt: "2026-05-07T00:00:00.000Z",
+      outputDirs: [],
+    });
+
+    expect(attachments).toEqual([]);
+  });
+
+  it("persists attachment keys after each upload and does not retry oversized files", async () => {
+    const sentFiles: string[] = [];
+    const discord: DiscordGateway = {
+      createSessionChannel: vi.fn(async (name: string) => ({ id: `channel-${name}`, name })),
+      deleteChannel: vi.fn(async () => undefined),
+      sendMessage: vi.fn(async () => undefined),
+      sendFiles: vi.fn(async (_channelId, files) => {
+        const file = files[0];
+        if (file.includes("oversized")) {
+          throw Object.assign(new Error("Request entity too large"), { code: 40005, status: 413 });
+        }
+        sentFiles.push(file);
+      }),
+      fetchChannelMessages: vi.fn(async () => []),
+      sendWebhookMessage: vi.fn(async () => undefined),
+    };
+    const testDir = resolve(`output/test/session-tail-image-partial-state-${Date.now()}`);
+    const okImagePath = resolve(testDir, "ok.png");
+    const oversizedImagePath = resolve(testDir, "oversized.png");
+    const sourceSessionPath = resolve(testDir, "session.jsonl");
+    await mkdir(testDir, { recursive: true });
+    await writeFile(okImagePath, "ok-image");
+    await writeFile(oversizedImagePath, "oversized-image");
+    await writeFile(
+      sourceSessionPath,
+      JSON.stringify({
+        session_id: "session-1",
+        role: "assistant",
+        content: `![ok](${okImagePath})\n![oversized](${oversizedImagePath})`,
+      }),
+    );
+    vi.stubEnv("REMOTE_CODEX_IMAGE_OUTPUT_DIRS", resolve(testDir, "empty-output-dir"));
+    const store = new InMemorySessionStore([
+      {
+        mappingKind: "transcript",
+        discordChannelId: "discord-1",
+        codexSessionId: "session-1",
+        transcriptId: "transcript-1",
+        sourceSessionPath,
+        mappingState: "active",
+        origin: "codex",
+        chatEnabled: true,
+        streamingEnabled: false,
+        lifecycleSyncEnabled: false,
+        createdAt: "2026-05-07T00:00:00.000Z",
+        archivedAt: null,
+        terminationMode: null,
+      },
+    ]);
+    const tailer = new TranscriptTailer(store, discord, {
+      statePath: resolve(testDir, "tail-state.json"),
+    });
+
+    await tailer.tick();
+    await tailer.tick();
+
+    expect(sentFiles).toEqual([okImagePath]);
+    expect(discord.sendFiles).toHaveBeenCalledTimes(2);
   });
 
   it("archives active tail mappings when the Discord channel no longer exists", async () => {

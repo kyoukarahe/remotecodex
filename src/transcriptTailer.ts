@@ -161,8 +161,11 @@ export class TranscriptTailer {
       historySourceRecordMax: allTurns.at(-1)?.sourceRecordIndex,
     });
     if (this.discord.sendFiles) {
+      const attachmentTextFragments = [...turns, ...streamTurns]
+        .filter((turn) => turn.speakerRole === "assistant")
+        .map((turn) => turn.textualContent);
       const attachments = await discoverImageAttachments({
-        textFragments: turns.filter((turn) => turn.speakerRole === "assistant").map((turn) => turn.textualContent),
+        textFragments: attachmentTextFragments,
         rawRecords: processableRawRecords.map((item) => item.record),
         sourceSessionPath: mapping.sourceSessionPath,
         sourceSessionId: mapping.codexSessionId,
@@ -183,13 +186,30 @@ export class TranscriptTailer {
           skippedAttachmentKeyCount += 1;
           continue;
         }
-        await withDiscordTimeout(
-          this.discord.sendFiles(mapping.discordChannelId, [attachment.path]),
-          "send image attachment",
-        );
+        try {
+          await withDiscordTimeout(
+            this.discord.sendFiles(mapping.discordChannelId, [attachment.path]),
+            "send image attachment",
+          );
+        } catch (error) {
+          if (isDiscordRequestTooLargeError(error)) {
+            sentAttachmentKeys.add(attachment.key);
+            changed = true;
+            skippedAttachmentKeyCount += 1;
+            await this.writeAttachmentState(state, mapping.discordChannelId, channelState, sentKeys, sentAttachmentKeys);
+            this.options.onDebug?.("Transcript tailer skipped oversized image attachment", {
+              channelId: mapping.discordChannelId,
+              codexSessionId: mapping.codexSessionId,
+              path: attachment.path,
+            });
+            continue;
+          }
+          throw error;
+        }
         sentAttachmentKeys.add(attachment.key);
         changed = true;
         sentAttachmentCount += 1;
+        await this.writeAttachmentState(state, mapping.discordChannelId, channelState, sentKeys, sentAttachmentKeys);
       }
     }
     for (const turn of pendingTurns) {
@@ -286,6 +306,21 @@ export class TranscriptTailer {
     const path = this.statePath();
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, JSON.stringify(state, null, 2), "utf8");
+  }
+
+  private async writeAttachmentState(
+    state: TailState,
+    channelId: string,
+    channelState: { sentKeys: string[]; sentAttachmentKeys?: string[]; lastSourceRecordIndex?: number },
+    sentKeys: Set<string>,
+    sentAttachmentKeys: Set<string>,
+  ): Promise<void> {
+    state.channels[channelId] = {
+      sentKeys: compactSentKeys(sentKeys),
+      sentAttachmentKeys: [...sentAttachmentKeys],
+      lastSourceRecordIndex: channelState.lastSourceRecordIndex,
+    };
+    await this.writeState(state);
   }
 
   private async pruneStateToActiveChannels(activeChannelIds: string[]): Promise<void> {
@@ -478,8 +513,16 @@ function isMissingSourceSessionError(error: unknown): boolean {
   return hasErrorCode(error, "ENOENT");
 }
 
+function isDiscordRequestTooLargeError(error: unknown): boolean {
+  return hasErrorCode(error, 40005) || hasErrorStatus(error, 413);
+}
+
 function hasErrorCode(error: unknown, code: string | number): boolean {
   return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === code;
+}
+
+function hasErrorStatus(error: unknown, status: number): boolean {
+  return typeof error === "object" && error !== null && "status" in error && (error as { status?: unknown }).status === status;
 }
 
 function objectValue(value: unknown): Record<string, unknown> | undefined {
