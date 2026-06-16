@@ -2,6 +2,9 @@
 
 RemoteCodex maps Discord text channels to local Windows Codex sessions.
 
+Project history, timeline, and current legacy status are documented in
+[`docs/remotecodex-project-retrospective.md`](docs/remotecodex-project-retrospective.md).
+
 V1 scope is intentionally chat-only:
 
 - Discord channel creation does not create a local Codex session. Session creation belongs to Windows Codex only.
